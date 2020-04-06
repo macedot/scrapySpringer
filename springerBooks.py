@@ -1,23 +1,25 @@
-import logging
-import scrapy
-import requests
+#!/usr/bin/python3
 import csv
-import html2text
 import os
 from pathlib import Path
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict
+
+import requests
+import scrapy
+import html2text
 
 converter = html2text.HTML2Text()
 converter.ignore_links = True
 
+
 def read_csv(input_file: str, delimiter: str = ',') -> Dict[str, list]:
     """Read file to dict with header as dict keys;"""
     columns = defaultdict(list)
-    with open(input_file, encoding="utf8") as f:
-        reader = csv.reader(f, delimiter=delimiter)
+    with open(input_file, encoding="utf8") as file:
+        reader = csv.reader(file, delimiter=delimiter)
         headers = next(reader)
-        column_nums = range(len(headers)) # Do NOT change to xrange
+        column_nums = range(len(headers))  # Do NOT change to xrange
         for row in reader:
             for i in column_nums:
                 columns[headers[i]].append(row[i])
@@ -25,13 +27,14 @@ def read_csv(input_file: str, delimiter: str = ',') -> Dict[str, list]:
     columns = dict(columns)
     return columns
 
+
 class BookSpider(scrapy.Spider):
     name = 'springerBooks'
     books = defaultdict(list)
 
     def start_requests(self):
         self.books = read_csv('data/FreeEnglishTextbooks.csv')
-        urls = self.books['OpenURL'][:3]
+        urls = self.books['OpenURL']
         for idx in range(len(urls)):
             self.log('url = %s' % urls[idx])
             yield scrapy.Request(url=urls[idx],
@@ -48,7 +51,7 @@ class BookSpider(scrapy.Spider):
             title = page_title.css('h2 ::text').get()
             if title is None:
                 title = page_title.css('h1 ::text').get()
-                title = title.replace(":","-")
+                title = title.replace(":", "-")
 
         authors = "INVALID"
         list_authors = list()
@@ -60,45 +63,48 @@ class BookSpider(scrapy.Spider):
         if len(list_authors) > 0:
             authors = ",".join(list_authors)
 
-        url_pdf = ""
+        url_book = ""
         for book_authors in response.css('.cta-button-container__item'):
             for href in book_authors.css('a ::attr(href)'):
-                url_pdf = href.get()
+                url_book = href.get()
 
-        url_pdf = "https://link.springer.com/" + url_pdf
-        pdf_size = 0
-        pdf_file_name = "{}_{}.pdf".format(title, authors)
+        url_book = "https://link.springer.com/" + url_book
+        book_size = 0
+        book_file_name = "{}_{}.pdf".format(title, authors)
 
         books_path = Path("books")
         books_temp = Path("temp")
-        pdf_tmp = books_temp / pdf_file_name
-        pdf_final = books_path / pdf_file_name
+        book_tmp = books_temp / book_file_name
+        book_final = books_path / book_file_name
 
-        if os.path.exists(pdf_final):
-            self.logger.debug("Skipping PDF: ({} -> {})".format(url_pdf, pdf_final))
-            pass
+        if os.path.exists(book_final):
+            self.logger.debug(
+                "Skipping Book: ({} -> {})".format(url_book, book_final))
+            return
 
         try:
-            with requests.get(url_pdf) as pdf_file:
-                pdf_size = len(pdf_file.content)
-                with open(pdf_tmp, 'wb') as file:
-                    file.write(pdf_file.content)
-                os.rename(pdf_tmp, pdf_final)
+            with requests.get(url_book) as book_file:
+                book_size = len(book_file.content)
+                with open(book_tmp, 'wb') as file:
+                    file.write(book_file.content)
+                os.rename(book_tmp, book_final)
         except IOError:
-            self.logger.error("Unable to save PDF: ({} -> {})".format(url_pdf, pdf_tmp))
-            pass
+            self.logger.error(
+                "Unable to save Book: ({} -> {})".format(url_book, book_tmp))
+            return
 
         yield {
             'idx': idx,
             'title': title,
             'authors': authors,
             'url': url,
-            'url_pdf': url_pdf,
-            'pdf': pdf_final,
-            'pdf_size': pdf_size,
+            'url_book': url_book,
+            'book': book_final,
+            'book_size': book_size,
         }
+
 
 if __name__ == '__main__':
     print(scrapy.__version__)
-    books = read_csv('data/FreeEnglishTextbooks.csv')
-    print(books.keys())
+    BOOK_LIST = read_csv('data/FreeEnglishTextbooks.csv')
+    print(BOOK_LIST.keys())
