@@ -38,7 +38,7 @@ class BookSpider(scrapy.Spider):
 
     def start_requests(self):
         self.books = read_csv('data/FreeEnglishTextbooks.csv')
-        urls = self.books['OpenURL'][:1]
+        urls = self.books['OpenURL'][:]
         for idx in range(len(urls)):
             self.log('url = %s' % urls[idx])
             yield scrapy.Request(url=urls[idx],
@@ -52,13 +52,10 @@ class BookSpider(scrapy.Spider):
 
             title = self.books['Book Title'][idx]
             authors = self.books['Author'][idx]
+            book_pack = self.books['English Package Name'][idx]
             parsed_uri = urlparse(response.url)
 
-            url_book = ""
-            for book_authors in response.css('.cta-button-container__item'):
-                with book_authors.css('a ::attr(href)') as href:
-                    url_book = href[0].get()
-
+            url_book = response.css('div.cta-button-container__item a::attr(href)').get()
             if len(url_book) == 0:
                 self.logger.error(
                     "Unable to find Book URL at '{}}'".format(url))
@@ -71,29 +68,30 @@ class BookSpider(scrapy.Spider):
             #     self.logger.debug(
             #         "Skipping Book: ({}, {} -> {})".format(idx, url_book, book_final))
             #     return
-        except:
+        except Exception as e:
             self.logger.error(
-                "Error while reading Book URL: ({}, {})'".format(idx, url))
+                "Error while reading Book URL ({}, {}): {}'".format(idx, url, str(e)))
             return
 
         try:
             with requests.get(url_book) as book_request:
-                if book_file.status_code != 200:
+                if book_request.status_code != 200:
                     return
                 content_disposition = book_request.headers['content-disposition']
-                book_size = len(book_file.content)
+                book_size = len(book_request.content)
                 if book_size <= 0:
                     return
                 fname = re.findall("filename=(.+)", content_disposition)[0]
                 book_tmp = self.temp_path / fname
-                with open(book_tmp, 'wb') as file:
-                    file.write(book_file.content)
+                with open(book_tmp, 'wb+') as file:
+                    file.write(book_request.content)
                 book_fname = "{}_{}_{}".format(title, authors, fname)
-                book_final = self.books_path / book_fname
+                Path(self.books_path / book_pack).mkdir(parents=True, exist_ok=True)
+                book_final = self.books_path / book_pack / book_fname
                 os.rename(book_tmp, book_final)
         except IOError:
             self.logger.error(
-                "Unable to save Book: ({} -> {})".format(url_book, book_tmp))
+                "Unable to save Book: ('{}' -> '{}')".format(url_book, book_tmp))
             return
 
         yield {
